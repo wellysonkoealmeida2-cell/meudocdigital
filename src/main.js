@@ -167,6 +167,11 @@ async function openForm(codigo, existing=null) {
       '</label>').join('')+
       '<button type="submit">Salvar e visualizar</button></form><p id="document-feedback" role="status"></p></section>';
     area.scrollIntoView({behavior:'smooth',block:'start'});
+    if(existing?.andamento && existing.andamento!=='rascunho'){
+      document.querySelectorAll('#document-form input,#document-form textarea,#document-form button').forEach(el=>el.disabled=true);
+      const f=document.getElementById('document-feedback');
+      if(f)f.textContent='Atendimento '+decorateStatus(existing.andamento)+'. Os dados ficam bloqueados após o envio.';
+    }
     if(existing?.dados)for(const [key,val] of Object.entries(existing.dados)){
       const input=document.getElementById('document-form').elements.namedItem(key);
       if(input)input.value=String(val??'');
@@ -198,7 +203,7 @@ async function openForm(codigo, existing=null) {
     notice('');
   }catch(err){notice(err.message);}
 }
-function showDocumentPreview(m,dados,id) {
+function showDocumentPreview(m,dados,id,andamento='rascunho') {
   const area=document.getElementById('preview-area') || document.createElement('section');
   area.id='preview-area';
   const printRows=(m.campos||[]).map(f=>'<div class="print-row"><strong>'+escape(f.titulo)+':</strong> <span>'+escape(dados[f.campo]||'—')+'</span></div>').join('');
@@ -209,11 +214,23 @@ function showDocumentPreview(m,dados,id) {
     '<h2>'+escape(m.nome)+'</h2>'+
     '<p>'+(m.finalidade==='orientacao'?'Resumo de atendimento particular sobre recuperação de documento perdido. Não é solicitação protocolada, nem substitui o procedimento junto ao órgão responsável.':'Registro particular preparado pelo declarante. Não é documento oficial, não substitui segunda via e não comprova emissão por órgão público.')+'</p>'+
     printRows+
-    '<p class="print-footer">Rascunho ID: '+escape(id)+'<br>Emitido para conferência em '+escape(new Date().toLocaleDateString('pt-BR'))+'.</p></div>'+
-    '<div class="actions"><button type="button" id="print-document">Imprimir / salvar em PDF</button>'+
+    '<p class="print-footer">Registro interno: '+escape(id)+'<br>Emitido para conferência em '+escape(new Date().toLocaleDateString('pt-BR'))+'.</p></div>'+
+    '<div class="actions"><button type="button" id="print-document">Imprimir / salvar em PDF</button>'+ 
+    (andamento==='rascunho'?'<button type="button" id="send-request">Enviar à consultoria</button>':'<span class="subtle">Andamento: '+escape(decorateStatus(andamento))+'</span>')+
     '<button type="button" id="edit-document">Editar dados</button></div></section>';
   document.getElementById('details').appendChild(area);
   document.getElementById('print-document').onclick=()=>window.print();
+  const send=document.getElementById('send-request');
+  if(send)send.onclick=async()=>{
+    if(!confirm('Enviar esta solicitação à consultoria? Após o envio, o rascunho ficará bloqueado para edição.'))return;
+    send.disabled=true;send.textContent='Enviando...';
+    try{
+      await callApi('/requests/'+encodeURIComponent(id)+'/submit','POST',{});
+      documents=await callApi('/my-status');
+      notice('Solicitação recebida pela consultoria. Acompanhe em Solicitações.');
+      send.replaceWith(Object.assign(document.createElement('span'),{textContent:'Enviado para análise'}));
+    }catch(err){notice(err.message);send.disabled=false;send.textContent='Enviar à consultoria';}
+  };
   document.getElementById('edit-document').onclick=()=>{document.getElementById('edit-form-panel')?.scrollIntoView({behavior:'smooth'});};
   area.scrollIntoView({behavior:'smooth'});
 }
@@ -222,7 +239,7 @@ async function openSavedDocument(id) {
     notice('Carregando rascunho...');
     const entry=await callApi('/requests/'+encodeURIComponent(id));
     await openForm(entry.codigo,entry);
-    showDocumentPreview(selectedModule,entry.dados,entry.id);
+    showDocumentPreview(selectedModule,entry.dados,entry.id,entry.andamento||'rascunho');
   } catch(err){ notice(err.message);}
 }
 
