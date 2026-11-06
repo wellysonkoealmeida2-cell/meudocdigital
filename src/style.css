@@ -16,3 +16,15 @@ button:disabled{opacity:.6;cursor:not-allowed}
  .print-row{break-inside:avoid}
  @page{size:A4;margin:18mm}
 }
+
+
+select{padding:12px;border:1px solid #604451;background:#271c29;color:#f8ecde;border-radius:10px;font:inherit;max-width:100%}
+.category-pills,.admin-tabs{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0 22px}
+.small-btn{padding:9px 12px;font-size:12px;background:#40303a;color:#ead7b5;border:1px solid #644956}
+.small-btn.current{background:#a4773e;color:#1b0f13;border-color:#a4773e}
+.admin-tabs{margin:0 0 20px}
+.admin-form label{display:block;margin:14px 0}
+.two-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 20px}
+.saved-item .actions{margin-top:0}
+.subtle{font-size:12px;color:#b1a1aa;margin-top:4px;overflow-wrap:anywhere}
+@media(max-width:700px){.saved-item{align-items:flex-start;flex-direction:column}.saved-item .actions{width:100%}}
