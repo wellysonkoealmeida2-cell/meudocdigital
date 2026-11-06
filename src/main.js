@@ -114,7 +114,7 @@ function loginPage(mode='login') {
     finally { if (button.isConnected) button.disabled = false; }
   };
 }
-async function callApi(path, method='GET') {
+async function callApi(path, method='GET', payload=null) {
   const {data:{session},error} = await supabase.auth.getSession();
   if (error || !session) throw new Error('Faça login para continuar.');
   const response = await fetch(apiRoot + path, {
@@ -123,7 +123,8 @@ async function callApi(path, method='GET') {
       'apikey':publishableKey,
       'authorization':'Bearer '+session.access_token,
       'content-type':'application/json'
-    }
+    },
+    ...(payload === null ? {} : {body:JSON.stringify(payload)})
   });
   const json = await response.json().catch(()=>({error:'Resposta inesperada da API'}));
   if(!response.ok || json.ok===false) throw new Error(json.error || 'Falha na API');
@@ -139,6 +140,92 @@ async function showDashboard() {
     render();
   } catch (e) {displayFailure(e);}
 }
+
+let selectedModule=null;
+let selectedDraft=null;
+function allowedInputType(kind) {
+  return kind==='date'?'date':'text';
+}
+async function openForm(codigo, existing=null) {
+  try {
+    notice('Abrindo formulário...');
+    const m=await callApi('/modules/'+encodeURIComponent(codigo));
+    selectedModule=m;
+    selectedDraft=existing?.id || null;
+    view='catalogo';
+    render();
+    const area=document.getElementById('details');
+    if(!area)return;
+    area.innerHTML=
+      '<section class="panel" id="edit-form-panel"><h2>'+escape(m.nome)+'</h2>'+
+      '<p>Formulário de documento particular. Os dados ficam vinculados à sua conta; esta plataforma não emite vias oficiais.</p>'+
+      '<form id="document-form">'+
+      (m.campos||[]).map(f=>'<label>'+escape(f.titulo)+(f.obrigatorio?' *':'')+
+        (f.tipo==='textarea'
+        ? '<textarea name="'+escape(f.campo)+'" maxlength="1500" rows="4" '+(f.obrigatorio?'required':'')+'></textarea>'
+        : '<input name="'+escape(f.campo)+'" type="'+allowedInputType(f.tipo)+'" maxlength="1500" '+(f.obrigatorio?'required':'')+' />')+
+      '</label>').join('')+
+      '<button type="submit">Salvar e visualizar</button></form><p id="document-feedback" role="status"></p></section>';
+    area.scrollIntoView({behavior:'smooth',block:'start'});
+    if(existing?.dados)for(const [key,val] of Object.entries(existing.dados)){
+      const input=document.getElementById('document-form').elements.namedItem(key);
+      if(input)input.value=String(val??'');
+    }
+    document.getElementById('document-form').onsubmit=async e=>{
+      e.preventDefault();
+      const button=e.currentTarget.querySelector('button[type=submit]');
+      const payload={};
+      for(const f of m.campos||[]){
+        const input=e.currentTarget.elements.namedItem(f.campo);
+        payload[f.campo]=input?.value?.trim()||'';
+        if(f.obrigatorio && !payload[f.campo]){
+          document.getElementById('document-feedback').textContent='Preencha: '+f.titulo;
+          return;
+        }
+      }
+      button.disabled=true;
+      const feedback=document.getElementById('document-feedback');
+      feedback.textContent='Salvando com segurança...';
+      try{
+        const saved=await callApi('/requests','POST',{codigo:m.codigo,dados:payload,...(selectedDraft?{id:selectedDraft}:{})});
+        selectedDraft=saved.id;
+        documents=await callApi('/documents');
+        feedback.textContent='Rascunho salvo.';
+        showDocumentPreview(m,payload,saved.id);
+      }catch(err){feedback.textContent=err.message;}
+      finally{button.disabled=false;}
+    };
+    notice('');
+  }catch(err){notice(err.message);}
+}
+function showDocumentPreview(m,dados,id) {
+  const area=document.getElementById('preview-area') || document.createElement('section');
+  area.id='preview-area';
+  const printRows=(m.campos||[]).map(f=>'<div class="print-row"><strong>'+escape(f.titulo)+':</strong> <span>'+escape(dados[f.campo]||'—')+'</span></div>').join('');
+  area.innerHTML=
+    '<section class="panel"><h2>Pré-visualização</h2>'+
+    '<p>Rascunho de documento particular. Confira os dados antes de imprimir.</p>'+
+    '<div id="print-sheet"><div class="print-title">DOCUMENTO PARTICULAR</div>'+
+    '<h2>'+escape(m.nome)+'</h2>'+
+    '<p>Registro particular preparado pelo titular das informações. Não é documento oficial, não substitui segunda via e não comprova emissão por órgão público.</p>'+
+    printRows+
+    '<p class="print-footer">Rascunho ID: '+escape(id)+'<br>Emitido para conferência em '+escape(new Date().toLocaleDateString('pt-BR'))+'.</p></div>'+
+    '<div class="actions"><button type="button" id="print-document">Imprimir / salvar em PDF</button>'+
+    '<button type="button" id="edit-document">Editar dados</button></div></section>';
+  document.getElementById('details').appendChild(area);
+  document.getElementById('print-document').onclick=()=>window.print();
+  document.getElementById('edit-document').onclick=()=>{document.getElementById('edit-form-panel')?.scrollIntoView({behavior:'smooth'});};
+  area.scrollIntoView({behavior:'smooth'});
+}
+async function openSavedDocument(id) {
+  try {
+    notice('Carregando rascunho...');
+    const entry=await callApi('/requests/'+encodeURIComponent(id));
+    await openForm(entry.codigo,entry);
+    showDocumentPreview(selectedModule,entry.dados,entry.id);
+  } catch(err){ notice(err.message);}
+}
+
 const tabs=[['inicio','Visão geral'],['catalogo','Catálogo'],['documentos','Documentos'],['conta','Minha conta']];
 function render() {
   root.innerHTML=`<div class="layout">
@@ -155,12 +242,12 @@ function render() {
   if(view==='catalogo') {
     body.innerHTML=`<div class="grid">${catalog.map(m=>`<article class="panel"><div class="file-icon">▤</div><h2>${escape(m.nome)}</h2><p>${escape(m.descricao)}</p><p><b>${Number(m.preco_creditos)||0} créditos</b></p><button data-code="${escape(m.codigo)}">Ver campos</button></article>`).join('') || '<p>Não há modelos publicados.</p>'}</div><div id="details"></div>`;
     document.querySelectorAll('[data-code]').forEach(b=>b.onclick=async()=>{
-      try{
-        const m=await callApi('/modules/'+encodeURIComponent(b.dataset.code));
-        document.getElementById('details').innerHTML=`<div class="panel"><h2>${escape(m.nome)}</h2><p>Campos informativos — geração ainda indisponível.</p>${(m.campos||[]).map(f=>`<p>${escape(f.titulo)}${f.obrigatorio?' *':''}</p>`).join('')}</div>`;
-      } catch(e){notice(e.message);}
+      await openForm(b.dataset.code);
     });
   }
-  if(view==='documentos') body.innerHTML=`<div class="panel"><h2>Meus documentos</h2>${documents.length?documents.map(d=>`<p>${escape(d.estado)} — ${escape(d.criado_em)}</p>`).join(''):'<p>Nenhum documento gerado até agora.</p>'}</div>`;
+  if(view==='documentos') {
+    body.innerHTML=`<div class="panel"><h2>Minhas solicitações e rascunhos</h2><p>Abra seus registros para editar ou imprimir documentos particulares.</p>${documents.length?documents.map(d=>`<div class="saved-item"><span>${escape(d.estado)} · ${escape(new Date(d.criado_em).toLocaleDateString('pt-BR'))}</span><button data-open="${escape(d.id)}">Abrir</button></div>`).join(''):'<p>Nenhum rascunho salvo ainda.</p>'}</div>`;
+    document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openSavedDocument(b.dataset.open));
+  }
   if(view==='conta') body.innerHTML=`<div class="panel"><h2>Informações da conta</h2><p>Nome: ${escape(account?.nome||'Não informado')}</p><p>Status: ${escape(account?.status||'Aguardando perfil')}</p><p>Permissões: ${escape((account?.papeis||[]).join(', ')||'Usuário')}</p></div>`;
 }
