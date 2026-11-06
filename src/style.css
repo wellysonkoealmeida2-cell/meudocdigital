@@ -28,3 +28,12 @@ select{padding:12px;border:1px solid #604451;background:#271c29;color:#f8ecde;bo
 .saved-item .actions{margin-top:0}
 .subtle{font-size:12px;color:#b1a1aa;margin-top:4px;overflow-wrap:anywhere}
 @media(max-width:700px){.saved-item{align-items:flex-start;flex-direction:column}.saved-item .actions{width:100%}}
+
+/* Transparência obrigatória: avisos visíveis nas telas principais */
+.public-notice{margin:20px 0 0;padding:15px 17px;border:1px solid #956e43;border-left:4px solid #dfb272;border-radius:12px;background:#2b2224;color:#f8e9cf;font-size:12px;line-height:1.65}
+.public-notice.compact{margin:0 0 22px}
+@media print{
+ .public-notice{display:none!important}
+ #print-sheet .print-title{font-size:13px;letter-spacing:.12em;font-weight:900}
+ #print-sheet:before{content:"DOCUMENTO PARTICULAR — SEM VALIDADE OFICIAL";display:block;color:#7b2631;font-size:11px;font-weight:800;letter-spacing:.07em;padding-bottom:12px;border-bottom:1px solid #bba7a7;margin-bottom:15px}
+}
