@@ -6,7 +6,7 @@ const endpoint = import.meta.env.VITE_SUPABASE_URL;
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const apiRoot = endpoint + '/functions/v1/meu-sistema-api';
 const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let supabase, view = 'inicio', catalog = [], account = null, balance = {creditos:0}, documents = [];
+let supabase, view = 'inicio', catalog = [], account = null, balance = {creditos:0}, documents = [], adminPage='overview', adminData=null, searchTerm='', currentCategory='Todas';
 
 if (!endpoint || !publishableKey || publishableKey.startsWith('COLE_')) {
   root.innerHTML = '<main class="auth"><h1>Meu Sistema</h1><p>Configuração pendente: configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY nas variáveis do build do Cloudflare Pages.</p></main>';
@@ -226,7 +226,107 @@ async function openSavedDocument(id) {
   } catch(err){ notice(err.message);}
 }
 
-const tabs=[['inicio','Visão geral'],['catalogo','Catálogo'],['documentos','Documentos'],['conta','Minha conta']];
+
+const isAdmin=()=>Boolean(account?.papeis?.includes('admin'));
+function formatDate(value){try{return new Date(value).toLocaleDateString('pt-BR')}catch{return '—'}}
+function decorateStatus(status){
+ const map={rascunho:'Rascunho',recebido:'Recebido',em_analise:'Em análise',aguardando_cliente:'Aguardando cliente',orientado:'Orientação enviada',concluido:'Concluído',cancelado:'Cancelado'};
+ return map[status]||status||'Rascunho';
+}
+async function loadAdmin(page='overview'){
+ if(!isAdmin())return notice('Acesso restrito ao administrador');
+ adminPage=page;view='admin';render();
+ const el=document.getElementById('admin-body');
+ if(el)el.innerHTML='<div class="panel">Carregando administração...</div>';
+ try{
+  const route={overview:'/admin/summary',models:'/admin/catalog',requests:'/admin/requests',users:'/admin/clients'}[page];
+  adminData=await callApi(route);
+  renderAdmin();
+ }catch(e){notice(e.message);}
+}
+function renderAdmin(){
+ const area=document.getElementById('admin-body');if(!area)return;
+ const names={overview:'Indicadores',models:'Modelos e serviços',requests:'Solicitações',users:'Clientes'};
+ if(adminPage==='overview'){
+  const d=adminData||{};
+  area.innerHTML='<div class="stats">'+[
+    ['Clientes',d.usuarios],['Serviços ativos',d.modelos_ativos],['Solicitações',d.solicitacoes],['Em análise',d.em_analise]
+  ].map(([name,value])=>'<article><p>'+escape(name)+'</p><strong>'+Number(value||0)+'</strong></article>').join('')+'</div>'+
+  '<div class="panel"><h2>Gestão da consultoria</h2><p>Use as abas acima para cadastrar serviços, acompanhar pedidos e consultar clientes. Documentos oficiais são solicitados junto aos órgãos competentes.</p></div>';
+ }
+ if(adminPage==='models'){
+  const items=Array.isArray(adminData)?adminData:[];
+  area.innerHTML='<div class="panel"><h2>Cadastrar serviço ou modelo</h2><p>Campos: uma linha por campo, no formato codigo|Título|text,textarea,date ou currency|sim ou nao. Por segurança, novos serviços começam desativados até sua revisão.</p>'+
+  '<form id="module-form" class="admin-form"><div class="two-cols">'+
+  '<label>Código único<input name="codigo" required pattern="[a-z0-9_-]{2,64}" placeholder="solicitacao-nova"></label>'+
+  '<label>Nome do serviço<input name="nome" required maxlength="100"></label>'+
+  '<label>Categoria<input name="categoria" required value="Serviços de consultoria"></label>'+
+  '<label>Finalidade<select name="finalidade"><option value="orientacao">Orientação de segunda via</option><option value="particular">Documento particular</option></select></label>'+
+  '<label>Créditos (sem cobrança automática)<input name="preco_creditos" type="number" min="0" max="5000" value="0"></label></div>'+
+  '<label>Descrição<textarea name="descricao" maxlength="800" rows="3"></textarea></label>'+
+  '<label>Campos (um por linha)<textarea name="campos" rows="5" placeholder="nome|Nome completo|text|sim&#10;contato|Telefone|text|sim&#10;relato|Descrição da solicitação|textarea|sim"></textarea></label>'+
+  '<button type="submit">Salvar modelo</button><p id="module-feedback" role="status"></p></form></div>'+
+  '<div class="panel"><h2>Serviços cadastrados ('+items.length+')</h2>'+
+  items.map(m=>'<div class="saved-item"><div><strong>'+escape(m.nome)+'</strong><div class="subtle">'+escape(m.categoria)+' · '+escape(m.finalidade)+' · '+Number(m.preco_creditos||0)+' créditos</div></div><div class="actions"><button class="small-btn" data-edit="'+escape(m.codigo)+'">Editar</button><button class="small-btn" data-toggle="'+escape(m.codigo)+'" data-active="'+Boolean(m.ativo)+'">'+(m.ativo?'Desativar':'Ativar')+'</button></div></div>').join('')+'</div>';
+  const form=document.getElementById('module-form');
+  form.onsubmit=async e=>{
+   e.preventDefault();
+   const fd=new FormData(form);
+   const fields=String(fd.get('campos')||'').split('\n').map(x=>x.trim()).filter(Boolean).map(line=>{
+    const [campo,titulo,tipo,obrigatorio]=line.split('|').map(x=>x?.trim());
+    return {campo,titulo,tipo:tipo||'text',obrigatorio:(obrigatorio||'').toLowerCase()==='sim'};
+   });
+   if(!fields.length)return document.getElementById('module-feedback').textContent='Adicione pelo menos um campo.';
+   try{
+    await callApi('/admin/save-module','POST',{
+     codigo:String(fd.get('codigo')||''),nome:String(fd.get('nome')||''),categoria:String(fd.get('categoria')||''),
+     descricao:String(fd.get('descricao')||''),finalidade:String(fd.get('finalidade')||'orientacao'),
+     preco_creditos:Number(fd.get('preco_creditos')||0),campos:fields
+    });
+    notice('Serviço salvo. Se for novo, ficará desativado até sua revisão.');
+    catalog=await callApi('/modules');await loadAdmin('models');
+   }catch(err){document.getElementById('module-feedback').textContent=err.message;}
+  };
+  document.querySelectorAll('[data-edit]').forEach(btn=>btn.onclick=()=>{
+   const item=items.find(x=>x.codigo===btn.dataset.edit);if(!item)return;
+   for(const field of ['codigo','nome','categoria','descricao','finalidade','preco_creditos'])form.elements.namedItem(field).value=item[field]??'';
+   form.elements.namedItem('campos').value=(item.esquema_campos||[]).map(f=>[f.campo,f.titulo,f.tipo,f.obrigatorio?'sim':'nao'].join('|')).join('\n');
+   form.scrollIntoView({behavior:'smooth'});
+  });
+  document.querySelectorAll('[data-toggle]').forEach(btn=>btn.onclick=async()=>{
+   try{
+    await callApi('/admin/toggle-module','POST',{codigo:btn.dataset.toggle,ativo:btn.dataset.active!=='true'});
+    catalog=await callApi('/modules');await loadAdmin('models');
+   }catch(e){notice(e.message);}
+  });
+ }
+ if(adminPage==='requests'){
+  const items=Array.isArray(adminData)?adminData:[];
+  const choices=['recebido','em_analise','aguardando_cliente','orientado','concluido','cancelado'];
+  area.innerHTML='<div class="panel"><h2>Atendimentos ('+items.length+')</h2><p>Atualize o andamento de cada solicitação. Dados completos do cliente não são exibidos nessa listagem.</p>'+
+  (items.map(d=>'<div class="saved-item"><div><strong>'+escape(d.servico||'Solicitação')+'</strong><div class="subtle">'+escape(d.cliente||'Cliente')+' · '+formatDate(d.criado_em)+'</div></div><div><select data-status="'+escape(d.id)+'">'+choices.map(s=>'<option value="'+s+'" '+(s===d.andamento?'selected':'')+'>'+decorateStatus(s)+'</option>').join('')+'</select></div></div>').join('')||'<p>Nenhum atendimento.</p>')+'</div>';
+  document.querySelectorAll('[data-status]').forEach(sel=>sel.onchange=async()=>{
+   try{await callApi('/admin/request-status','POST',{id:sel.dataset.status,andamento:sel.value});notice('Andamento atualizado');}
+   catch(e){notice(e.message);await loadAdmin('requests');}
+  });
+ }
+ if(adminPage==='users'){
+  const items=Array.isArray(adminData)?adminData:[];
+  area.innerHTML='<div class="panel"><h2>Clientes cadastrados ('+items.length+')</h2><p>Ajustes de créditos são manuais e auditáveis. Eles não representam pagamentos Pix confirmados.</p>'+
+  items.map(p=>'<div class="saved-item"><div><strong>'+escape(p.nome||'Conta cadastrada')+'</strong><div class="subtle">ID: '+escape(p.user_id)+' · '+escape(p.status)+' · '+Number(p.creditos||0)+' créditos</div></div><button class="small-btn" data-credit="'+escape(p.user_id)+'">Ajustar créditos</button></div>').join('')+'</div>';
+  document.querySelectorAll('[data-credit]').forEach(btn=>btn.onclick=async()=>{
+   const answer=prompt('Quantidade a adicionar (negativa para retirar). Limite de 10.000 por ajuste:');
+   if(answer===null)return;
+   const delta=Number(answer);
+   if(!Number.isSafeInteger(delta)||delta===0||Math.abs(delta)>10000)return notice('Valor inválido');
+   const reference='manual-'+crypto.randomUUID();
+   try{await callApi('/admin/adjust-credits','POST',{user_id:btn.dataset.credit,delta,referencia:reference});notice('Ajuste registrado em histórico');await loadAdmin('users');}
+   catch(e){notice(e.message);}
+  });
+ }
+}
+
+const tabs=[['inicio','Visão geral'],['catalogo','Catálogo'],['documentos','Solicitações'],['conta','Minha conta'], ...(isAdmin()?[['admin','Administração']]:[])];
 function render() {
   root.innerHTML=`<div class="layout">
     <aside class="sidebar"><div class="logo">MEU <span>SISTEMA</span></div><div class="eyebrow">CENTRAL DE DOCUMENTOS</div>
@@ -236,11 +336,21 @@ function render() {
     <main class="content"><header><div class="eyebrow">PAINEL DO CLIENTE</div><h1>${tabs.find(t=>t[0]===view)[1]}</h1></header><section id="body"></section><p id="notice" role="status"></p></main>
   </div>`;
   document.getElementById('logout').onclick=()=>supabase.auth.signOut();
-  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{view=b.dataset.tab;render();});
+  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{view=b.dataset.tab;if(view==='admin')loadAdmin(adminPage);else render();});
   const body=document.getElementById('body');
+  if(view==='admin'){
+    body.innerHTML='<div class="admin-tabs">'+[['overview','Indicadores'],['models','Serviços'],['requests','Atendimentos'],['users','Clientes']].map(([id,name])=>'<button type="button" data-admin="'+id+'" class="small-btn '+(adminPage===id?'current':'')+'">'+name+'</button>').join('')+'</div><section id="admin-body"></section>';
+    document.querySelectorAll('[data-admin]').forEach(b=>b.onclick=()=>loadAdmin(b.dataset.admin));
+    return;
+  }
   if(view==='inicio') body.innerHTML=`<div class="stats"><article><p>Créditos</p><strong>${Number(balance?.creditos)||0}</strong></article><article><p>Modelos disponíveis</p><strong>${catalog.length}</strong></article><article><p>Registros recentes</p><strong>${documents.length}</strong></article></div><div class="panel"><h2>Bem-vindo ao Meu Sistema</h2><p>Explore o catálogo de contratos e declarações particulares. Você já pode salvar rascunhos e usar Imprimir para salvar documentos particulares em PDF. Emissão oficial e pagamentos não estão ativados.</p></div>`;
   if(view==='catalogo') {
-    body.innerHTML=`<div class="grid">${catalog.map(m=>`<article class="panel"><div class="file-icon">▤</div><h2>${escape(m.nome)}</h2><p>${escape(m.descricao)}</p><p><b>${Number(m.preco_creditos)||0} créditos</b></p><button data-code="${escape(m.codigo)}">Ver campos</button></article>`).join('') || '<p>Não há modelos publicados.</p>'}</div><div id="details"></div>`;
+    const cats=['Todas',...new Set(catalog.map(m=>m.categoria||'Outros'))];
+    const visible=catalog.filter(m=>(currentCategory==='Todas'||(m.categoria||'Outros')===currentCategory)&&
+       (m.nome+' '+m.descricao+' '+m.categoria).toLowerCase().includes(searchTerm.toLowerCase()));
+    body.innerHTML=`<div class="panel"><h2>Buscar serviços</h2><input id="catalog-search" placeholder="Pesquisar segunda via, certidão, declaração..." value="${escape(searchTerm)}"><div class="category-pills">${cats.map(cat=>`<button class="small-btn ${currentCategory===cat?'current':''}" data-cat="${escape(cat)}">${escape(cat)}</button>`).join('')}</div></div><div class="grid">${visible.map(m=>`<article class="panel"><div class="file-icon">▤</div><h2>${escape(m.nome)}</h2><p>${escape(m.descricao)}</p><p><b>${Number(m.preco_creditos)||0} créditos</b></p><button data-code="${escape(m.codigo)}">Ver campos</button></article>`).join('') || '<p>Não há modelos publicados.</p>'}</div><div id="details"></div>`;
+    document.getElementById('catalog-search').oninput=e=>{const pos=e.target.selectionStart;searchTerm=e.target.value;render();const input=document.getElementById('catalog-search');input.focus();input.setSelectionRange(pos,pos);};
+    document.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{currentCategory=b.dataset.cat;render();});
     document.querySelectorAll('[data-code]').forEach(b=>b.onclick=async()=>{
       await openForm(b.dataset.code);
     });
