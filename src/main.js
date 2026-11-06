@@ -330,7 +330,15 @@ function renderAdmin(){
  if(adminPage==='users'){
   const items=Array.isArray(adminData)?adminData:[];
   area.innerHTML='<div class="panel"><h2>Clientes cadastrados ('+items.length+')</h2><p>Ajustes de créditos são manuais e auditáveis. Eles não representam pagamentos Pix confirmados.</p>'+
-  items.map(p=>'<div class="saved-item"><div><strong>'+escape(p.nome||'Conta cadastrada')+'</strong><div class="subtle">ID: '+escape(p.user_id)+' · '+escape(p.status)+' · '+Number(p.creditos||0)+' créditos</div></div><button class="small-btn" data-credit="'+escape(p.user_id)+'">Ajustar créditos</button></div>').join('')+'</div>';
+  items.map(p=>'<div class="saved-item"><div><strong>'+escape(p.nome||'Conta cadastrada')+'</strong><div class="subtle">ID: '+escape(p.user_id)+' · '+escape(p.status)+' · '+Number(p.creditos||0)+' créditos</div></div><div class="actions"><button class="small-btn" data-credit="'+escape(p.user_id)+'">Ajustar créditos</button><button class="small-btn" data-client="'+escape(p.user_id)+'" data-status="'+escape(p.status)+'">'+(p.status==='bloqueado'?'Ativar':'Bloquear')+'</button></div></div>').join('')+'</div>';
+  document.querySelectorAll('[data-client]').forEach(btn=>btn.onclick=async()=>{
+   const status=btn.dataset.status==='bloqueado'?'ativo':'bloqueado';
+   if(!confirm('Alterar o acesso deste cliente no Meu Sistema para '+status+'?'))return;
+   try{
+    await callApi('/admin/set-client','POST',{user_id:btn.dataset.client,status});
+    notice('Acesso atualizado no Meu Sistema');await loadAdmin('users');
+   }catch(e){notice(e.message);}
+  });
   document.querySelectorAll('[data-credit]').forEach(btn=>btn.onclick=async()=>{
    const answer=prompt('Quantidade a adicionar (negativa para retirar). Limite de 10.000 por ajuste:');
    if(answer===null)return;
@@ -376,5 +384,11 @@ function render() {
     body.innerHTML=`<div class="panel"><h2>Minhas solicitações e rascunhos</h2><p>Abra seus registros para editar ou imprimir documentos particulares.</p>${documents.length?documents.map(d=>`<div class="saved-item"><span><strong>${escape(d.nome||'Solicitação')}</strong><span class="subtle">${escape(decorateStatus(d.andamento||d.estado))} · ${escape(new Date(d.criado_em).toLocaleDateString('pt-BR'))}</span></span><button data-open="${escape(d.id)}">Abrir</button></div>`).join(''):'<p>Nenhum rascunho salvo ainda.</p>'}</div>`;
     document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openSavedDocument(b.dataset.open));
   }
-  if(view==='conta') body.innerHTML=`<div class="panel"><h2>Informações da conta</h2><p>Nome: ${escape(account?.nome||'Não informado')}</p><p>Status: ${escape(account?.status||'Aguardando perfil')}</p><p>Permissões: ${escape((account?.papeis||[]).join(', ')||'Usuário')}</p></div>`;
+  if(view==='conta') {
+    body.innerHTML=`<div class="panel"><h2>Informações da conta</h2><p>Nome: ${escape(account?.nome||'Não informado')}</p><p>Status: ${escape(account?.status||'Aguardando perfil')}</p><p>Permissões: ${escape((account?.papeis||[]).join(', ')||'Usuário')}</p><h2>Histórico de créditos</h2><div id="credit-history">Carregando histórico...</div></div>`;
+    callApi('/credit-history').then(items=>{
+      const area=document.getElementById('credit-history');if(!area)return;
+      area.innerHTML=items.length?items.map(x=>`<div class="saved-item"><span>${escape(x.origem)} · ${formatDate(x.criado_em)}</span><strong>${Number(x.delta)>0?'+':''}${Number(x.delta)}</strong></div>`).join(''):'<p>Sem movimentações de créditos.</p>';
+    }).catch(err=>{const area=document.getElementById('credit-history');if(area)area.textContent=err.message;});
+  }
 }
