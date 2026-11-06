@@ -30,7 +30,11 @@ function displayFailure(error) {
   const message = error instanceof Error ? error.message : String(error);
   const el = document.querySelector('#notice');
   if (el) el.textContent = message;
-  else root.innerHTML = '<main class="auth"><h1>Não foi possível carregar</h1><p>' + escape(message) + '</p></main>';
+  else {
+    root.innerHTML = '<main class="auth"><h1>Não foi possível carregar</h1><p>' + escape(message) + '</p><button type="button" id="retry-loading">Tentar novamente</button><button type="button" id="logout-loading">Sair da conta</button></main>';
+    document.getElementById('retry-loading').onclick = () => showDashboard();
+    document.getElementById('logout-loading').onclick = () => supabase.auth.signOut();
+  }
 }
 function notice(message) {
   const el = document.querySelector('#notice');
@@ -218,14 +222,14 @@ function showDocumentPreview(m,dados,id,andamento='rascunho') {
     '<div class="actions"><button type="button" id="print-document">Imprimir / salvar em PDF</button>'+ 
     (andamento==='rascunho'?'<button type="button" id="send-request">Enviar à consultoria</button>':'<span class="subtle">Andamento: '+escape(decorateStatus(andamento))+'</span>')+
     '<button type="button" id="edit-document">Editar dados</button></div></section>';
-  document.getElementById('details').appendChild(area);
+  if(!area.isConnected) document.getElementById('details').appendChild(area);
   document.getElementById('print-document').onclick=()=>window.print();
   const send=document.getElementById('send-request');
   if(send)send.onclick=async()=>{
     if(!confirm('Enviar esta solicitação à consultoria? Após o envio, o rascunho ficará bloqueado para edição.'))return;
     send.disabled=true;send.textContent='Enviando...';
     try{
-      await callApi('/requests/'+encodeURIComponent(id)+'/submit','POST',{});
+      await callApi('/requests/'+encodeURIComponent(id)+'/submit','POST');
       documents=await callApi('/my-status');
       notice('Solicitação recebida pela consultoria. Acompanhe em Solicitações.');
       send.replaceWith(Object.assign(document.createElement('span'),{textContent:'Enviado para análise'}));
@@ -351,8 +355,9 @@ function renderAdmin(){
  }
 }
 
-const tabs=[['inicio','Visão geral'],['catalogo','Catálogo'],['documentos','Solicitações'],['conta','Minha conta'], ...(isAdmin()?[['admin','Administração']]:[])];
+const getTabs=()=>[['inicio','Visão geral'],['catalogo','Catálogo'],['documentos','Solicitações'],['conta','Minha conta'], ...(isAdmin()?[['admin','Administração']]:[])];
 function render() {
+  const tabs=getTabs();
   root.innerHTML=`<div class="layout">
     <aside class="sidebar"><div class="logo">MEU <span>SISTEMA</span></div><div class="eyebrow">CENTRAL DE DOCUMENTOS</div>
       <nav>${tabs.map(([id,name])=>`<button data-tab="${id}" class="${view===id?'current':''}">${name}</button>`).join('')}</nav>
