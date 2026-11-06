@@ -135,7 +135,7 @@ async function showDashboard() {
   try {
     await callApi('/me/iniciar','POST');
     [account,catalog,balance,documents]=await Promise.all([
-      callApi('/me'), callApi('/modules'), callApi('/credits'), callApi('/documents')
+      callApi('/me'), callApi('/modules'), callApi('/credits'), callApi('/my-status')
     ]);
     render();
   } catch (e) {displayFailure(e);}
@@ -189,7 +189,7 @@ async function openForm(codigo, existing=null) {
       try{
         const saved=await callApi('/requests','POST',{codigo:m.codigo,dados:payload,...(selectedDraft?{id:selectedDraft}:{})});
         selectedDraft=saved.id;
-        documents=await callApi('/documents');
+        documents=await callApi('/my-status');
         feedback.textContent='Rascunho salvo.';
         showDocumentPreview(m,payload,saved.id);
       }catch(err){feedback.textContent=err.message;}
@@ -204,10 +204,10 @@ function showDocumentPreview(m,dados,id) {
   const printRows=(m.campos||[]).map(f=>'<div class="print-row"><strong>'+escape(f.titulo)+':</strong> <span>'+escape(dados[f.campo]||'—')+'</span></div>').join('');
   area.innerHTML=
     '<section class="panel"><h2>Pré-visualização</h2>'+
-    '<p>Rascunho de documento particular. Confira os dados antes de imprimir.</p>'+
-    '<div id="print-sheet"><div class="print-title">DOCUMENTO PARTICULAR</div>'+
+    '<p>Confira os dados antes de imprimir. O arquivo é particular e não substitui documentos emitidos pelos órgãos competentes.</p>'+
+    '<div id="print-sheet"><div class="print-title">'+(m.finalidade==='orientacao'?'FICHA PARTICULAR DE ATENDIMENTO':'DOCUMENTO PARTICULAR')+'</div>'+
     '<h2>'+escape(m.nome)+'</h2>'+
-    '<p>Registro particular preparado pelo titular das informações. Não é documento oficial, não substitui segunda via e não comprova emissão por órgão público.</p>'+
+    '<p>'+(m.finalidade==='orientacao'?'Resumo de atendimento particular sobre recuperação de documento perdido. Não é solicitação protocolada, nem substitui o procedimento junto ao órgão responsável.':'Registro particular preparado pelo declarante. Não é documento oficial, não substitui segunda via e não comprova emissão por órgão público.')+'</p>'+
     printRows+
     '<p class="print-footer">Rascunho ID: '+escape(id)+'<br>Emitido para conferência em '+escape(new Date().toLocaleDateString('pt-BR'))+'.</p></div>'+
     '<div class="actions"><button type="button" id="print-document">Imprimir / salvar em PDF</button>'+
@@ -356,7 +356,7 @@ function render() {
     });
   }
   if(view==='documentos') {
-    body.innerHTML=`<div class="panel"><h2>Minhas solicitações e rascunhos</h2><p>Abra seus registros para editar ou imprimir documentos particulares.</p>${documents.length?documents.map(d=>`<div class="saved-item"><span>${escape(d.estado)} · ${escape(new Date(d.criado_em).toLocaleDateString('pt-BR'))}</span><button data-open="${escape(d.id)}">Abrir</button></div>`).join(''):'<p>Nenhum rascunho salvo ainda.</p>'}</div>`;
+    body.innerHTML=`<div class="panel"><h2>Minhas solicitações e rascunhos</h2><p>Abra seus registros para editar ou imprimir documentos particulares.</p>${documents.length?documents.map(d=>`<div class="saved-item"><span><strong>${escape(d.nome||'Solicitação')}</strong><span class="subtle">${escape(decorateStatus(d.andamento||d.estado))} · ${escape(new Date(d.criado_em).toLocaleDateString('pt-BR'))}</span></span><button data-open="${escape(d.id)}">Abrir</button></div>`).join(''):'<p>Nenhum rascunho salvo ainda.</p>'}</div>`;
     document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openSavedDocument(b.dataset.open));
   }
   if(view==='conta') body.innerHTML=`<div class="panel"><h2>Informações da conta</h2><p>Nome: ${escape(account?.nome||'Não informado')}</p><p>Status: ${escape(account?.status||'Aguardando perfil')}</p><p>Permissões: ${escape((account?.papeis||[]).join(', ')||'Usuário')}</p></div>`;
