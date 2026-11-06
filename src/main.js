@@ -78,7 +78,7 @@ function loginPage(mode='login') {
   const title = mode === 'signup' ? 'Criar conta' : 'Entrar';
   root.innerHTML = `<main class="auth">
     <div class="eyebrow">CENTRAL DE DOCUMENTOS</div><h1>Meu <em>Sistema</em></h1>
-    <p>${mode==='signup'?'Cadastre um novo e-mail e uma senha exclusiva para esta conta.':'Entre para consultar seus documentos particulares, créditos e modelos.'}</p>
+    <p>${mode==='signup'?'Cadastre um novo e-mail e uma senha exclusiva para esta conta.':'Entre para criar e organizar documentos particulares.'}</p>
     <form id="login-form">
       <label>E-mail <input name="email" type="email" autocomplete="email" required></label>
       <label>Senha <input name="password" type="password" minlength="8" autocomplete="${mode==='signup'?'new-password':'current-password'}" required></label>
@@ -86,6 +86,7 @@ function loginPage(mode='login') {
     </form>
     <div class="switch"><button id="login-choice" type="button">Entrar</button><button id="signup-choice" type="button">Criar conta</button><button id="recover" type="button">Esqueci minha senha</button></div>
     <p id="notice" role="status"></p>
+    <div class="public-notice" role="note">AVISO PÚBLICO — O Meu Sistema é uma plataforma privada para criação de documentos particulares e gestão de atendimentos. Não emite CNH, CIN, certidões, atestados médicos ou outros documentos oficiais. Seus arquivos não substituem documentos emitidos pelos órgãos ou profissionais competentes. Quando houver QR Code, ele identificará exclusivamente um registro interno do Meu Sistema; não representa validação do gov.br, Detran, SUS ou qualquer autoridade pública.</div>
   </main>`;
   document.getElementById('login-choice').onclick = () => loginPage('login');
   document.getElementById('signup-choice').onclick = () => loginPage('signup');
@@ -162,7 +163,7 @@ async function openForm(codigo, existing=null) {
     if(!area)return;
     area.innerHTML=
       '<section class="panel" id="edit-form-panel"><h2>'+escape(m.nome)+'</h2>'+
-      '<p>Formulário de documento particular. Os dados ficam vinculados à sua conta; esta plataforma não emite vias oficiais.</p>'+
+      '<p>Formulário privado. Os dados ficam vinculados à sua conta e não produzem documentos oficiais.</p>'+
       '<form id="document-form">'+
       (m.campos||[]).map(f=>'<label>'+escape(f.titulo)+(f.obrigatorio?' *':'')+
         (f.tipo==='textarea'
@@ -216,7 +217,7 @@ function showDocumentPreview(m,dados,id,andamento='rascunho') {
     '<p>Confira os dados antes de imprimir. O arquivo é particular e não substitui documentos emitidos pelos órgãos competentes.</p>'+
     '<div id="print-sheet"><div class="print-title">'+(m.finalidade==='orientacao'?'FICHA PARTICULAR DE ATENDIMENTO':'DOCUMENTO PARTICULAR')+'</div>'+
     '<h2>'+escape(m.nome)+'</h2>'+
-    '<p>'+(m.finalidade==='orientacao'?'Resumo de atendimento particular sobre recuperação de documento perdido. Não é solicitação protocolada, nem substitui o procedimento junto ao órgão responsável.':'Registro particular preparado pelo declarante. Não é documento oficial, não substitui segunda via e não comprova emissão por órgão público.')+'</p>'+
+    '<p>'+(m.finalidade==='orientacao'?'Resumo privado do atendimento. Este arquivo não comprova protocolo nem substitui documento emitido por órgão público. Qualquer QR Code é apenas para validação interna do Meu Sistema.':'Documento particular preparado pelo declarante. Não é oficial nem substitui segunda via. Qualquer QR Code identifica somente um registro interno do Meu Sistema.')+'</p>'+
     printRows+
     '<p class="print-footer">Registro interno: '+escape(id)+'<br>Emitido para conferência em '+escape(new Date().toLocaleDateString('pt-BR'))+'.</p></div>'+
     '<div class="actions"><button type="button" id="print-document">Imprimir / salvar em PDF</button>'+ 
@@ -363,7 +364,7 @@ function render() {
       <nav>${tabs.map(([id,name])=>`<button data-tab="${id}" class="${view===id?'current':''}">${name}</button>`).join('')}</nav>
       <button id="logout" class="logout">Sair</button>
     </aside>
-    <main class="content"><header><div class="eyebrow">PAINEL DO CLIENTE</div><h1>${tabs.find(t=>t[0]===view)[1]}</h1></header><section id="body"></section><p id="notice" role="status"></p></main>
+    <main class="content"><header><div class="eyebrow">PAINEL PRIVADO</div><h1>${tabs.find(t=>t[0]===view)[1]}</h1></header><div class="public-notice compact" role="note">AVISO PÚBLICO — O Meu Sistema é uma plataforma privada para criação de documentos particulares e gestão de atendimentos. Não emite CNH, CIN, certidões, atestados médicos ou outros documentos oficiais. Seus arquivos não substituem documentos emitidos pelos órgãos ou profissionais competentes. Quando houver QR Code, ele identificará exclusivamente um registro interno do Meu Sistema; não representa validação do gov.br, Detran, SUS ou qualquer autoridade pública.</div><section id="body"></section><p id="notice" role="status"></p></main>
   </div>`;
   document.getElementById('logout').onclick=()=>supabase.auth.signOut();
   document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{view=b.dataset.tab;if(view==='admin')loadAdmin(adminPage);else render();});
@@ -373,7 +374,7 @@ function render() {
     document.querySelectorAll('[data-admin]').forEach(b=>b.onclick=()=>loadAdmin(b.dataset.admin));
     return;
   }
-  if(view==='inicio') body.innerHTML=`<div class="stats"><article><p>Créditos</p><strong>${Number(balance?.creditos)||0}</strong></article><article><p>Modelos disponíveis</p><strong>${catalog.length}</strong></article><article><p>Registros recentes</p><strong>${documents.length}</strong></article></div><div class="panel"><h2>Bem-vindo ao Meu Sistema</h2><p>Explore o catálogo de contratos e declarações particulares. Você já pode salvar rascunhos e usar Imprimir para salvar documentos particulares em PDF. Emissão oficial e pagamentos não estão ativados.</p></div>`;
+  if(view==='inicio') body.innerHTML=`<div class="stats"><article><p>Créditos</p><strong>${Number(balance?.creditos)||0}</strong></article><article><p>Modelos disponíveis</p><strong>${catalog.length}</strong></article><article><p>Registros recentes</p><strong>${documents.length}</strong></article></div><div class="panel"><h2>Bem-vindo ao Meu Sistema</h2><p>Crie documentos particulares, salve rascunhos e imprima PDFs. A plataforma não emite documentos oficiais; recursos de pagamento ainda não estão ativados.</p></div>`;
   if(view==='catalogo') {
     const cats=['Todas',...new Set(catalog.map(m=>m.categoria||'Outros'))];
     const visible=catalog.filter(m=>(currentCategory==='Todas'||(m.categoria||'Outros')===currentCategory)&&
