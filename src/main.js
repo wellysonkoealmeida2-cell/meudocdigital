@@ -12,9 +12,14 @@ if (!endpoint || !publishableKey || publishableKey.startsWith('COLE_')) {
   root.innerHTML = '<main class="auth"><h1>Meu Sistema</h1><p>Configuração pendente: configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY nas variáveis do build do Cloudflare Pages.</p></main>';
 } else {
   supabase = createClient(endpoint, publishableKey);
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      setTimeout(() => passwordRecoveryPage(), 0);
+      return;
+    }
     if (!session) loginPage();
-    else setTimeout(() => { showDashboard().catch(displayFailure); }, 0);
+    else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')
+      setTimeout(() => { showDashboard().catch(displayFailure); }, 0);
   });
   supabase.auth.getSession().then(({data}) => {
     if (!data.session) loginPage();
@@ -31,11 +36,45 @@ function notice(message) {
   const el = document.querySelector('#notice');
   if (el) el.textContent = message;
 }
+function readableAuthError(error) {
+  const message = String(error?.message || '');
+  const status = error?.status;
+  const code = error?.code;
+  if (code === 'invalid_credentials' || /Invalid login credentials/i.test(message))
+    return 'E-mail ou senha não reconhecidos neste Supabase. Se este e-mail já foi usado em outro site, a senha pode ser diferente. Utilize "Esqueci minha senha" para recuperar o acesso.';
+  if (status === 429 || /rate limit|too many requests|over_email_send_rate_limit/i.test(message))
+    return 'Muitas tentativas em pouco tempo. Aguarde antes de tentar novamente. Não repita o cadastro várias vezes.';
+  if (/already registered|already exists/i.test(message))
+    return 'Este e-mail já possui uma conta. Use Entrar ou Esqueci minha senha.';
+  if (/email not confirmed/i.test(message))
+    return 'Seu e-mail ainda não foi confirmado. A confirmação é configurada no Supabase.';
+  if (/password/i.test(message))
+    return 'Verifique os requisitos da senha: ' + message;
+  return message || 'Não foi possível concluir a operação. Tente novamente.';
+}
+function passwordRecoveryPage() {
+  root.innerHTML = `<main class="auth"><div class="eyebrow">RECUPERAÇÃO DE ACESSO</div>
+    <h1>Criar nova senha</h1><p>Escolha uma nova senha para sua conta.</p>
+    <form id="password-form"><label>Nova senha <input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+    <button type="submit">Salvar nova senha</button></form><p id="notice" role="status"></p></main>`;
+  document.getElementById('password-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button');
+    button.disabled = true;
+    notice('Salvando...');
+    try {
+      const {error} = await supabase.auth.updateUser({password:event.currentTarget.elements.password.value});
+      if (error) throw error;
+      notice('Senha alterada. Sua sessão está ativa e o painel será carregado.');
+      setTimeout(() => { showDashboard().catch(displayFailure); }, 0);
+    } catch (e) { notice(readableAuthError(e)); button.disabled = false; }
+  };
+}
 function loginPage(mode='login') {
   const title = mode === 'signup' ? 'Criar conta' : 'Entrar';
   root.innerHTML = `<main class="auth">
     <div class="eyebrow">CENTRAL DE DOCUMENTOS</div><h1>Meu <em>Sistema</em></h1>
-    <p>Entre para consultar seus documentos particulares, créditos e modelos.</p>
+    <p>${mode==='signup'?'Cadastre um novo e-mail e uma senha exclusiva para esta conta.':'Entre para consultar seus documentos particulares, créditos e modelos.'}</p>
     <form id="login-form">
       <label>E-mail <input name="email" type="email" autocomplete="email" required></label>
       <label>Senha <input name="password" type="password" minlength="8" autocomplete="${mode==='signup'?'new-password':'current-password'}" required></label>
@@ -49,23 +88,30 @@ function loginPage(mode='login') {
   document.getElementById('recover').onclick = async () => {
     const email = document.querySelector('[name=email]').value.trim();
     if (!email) return notice('Informe seu e-mail primeiro.');
-    const {error} = await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.origin});
-    notice(error?.message || 'Se o cadastro existir, o Supabase enviará instruções por e-mail.');
+    notice('Solicitando recuperação...');
+    try {
+      const {error} = await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.origin});
+      if(error) throw error;
+      notice('Se a conta existir, você receberá um link para criar outra senha. Confira a caixa de entrada e o spam.');
+    } catch (e) { notice(readableAuthError(e)); }
   };
   document.getElementById('login-form').onsubmit = async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
+    const button = form.querySelector('button[type=submit]');
+    button.disabled = true;
     notice('Aguarde...');
     try {
       const {data,error} = mode === 'signup'
         ? await supabase.auth.signUp({email,password})
         : await supabase.auth.signInWithPassword({email,password});
       if(error) throw error;
-      if (mode === 'signup' && !data.session) return notice('Confira seu e-mail e confirme o cadastro.');
+      if (mode === 'signup' && !data.session) return notice('Cadastro recebido. Se a confirmação de e-mail estiver ativa, confira sua caixa de entrada. Se esta conta já existir, utilize Entrar ou recuperação de senha.');
       await showDashboard();
-    } catch (e) {notice(e.message);}
+    } catch (e) { notice(readableAuthError(e)); }
+    finally { if (button.isConnected) button.disabled = false; }
   };
 }
 async function callApi(path, method='GET') {
